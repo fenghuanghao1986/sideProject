@@ -4,178 +4,63 @@ Created on Wed Aug 15 21:12:30 2018
 
 @author: fengh
 """
-
+import os
 import sys
-import re
-import urllib3
+import urllib2
 import requests
-import pymongo
-import datetime
-import multiprocessing as mp
+import re
+from lxml import etree
 
 
-Category_Map = {
-    "1":u"外汇",
-    "2":u"股市",
-    "3":u"商品",
-    "4":u"债市",
-    "5":u"央行",
-    "9":u"中国",
-    "10":u"美国",
-    "11":u"欧元区",
-    "12":u"日本",
-    "13":u"英国",
-    "14":u"澳洲",
-    "15":u"加拿大",
-    "16":u"瑞士",
-    "17":u"其他地区"
-}
-def num2name(category_num):
-    if Category_Map.has_key(category_num):
-        return Category_Map[category_num]
-    else:
-        return ""
+def StringListSave(save_path, filename, slist):
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    path = save_path+"/"+filename+".txt"
+    with open(path, "w+") as fp:
+        for s in slist:
+            fp.write("%s\t\t%s\n" % (s[0].encode("utf8"), s[1].encode("utf8")))
 
-class MongoDBIO:
-    # 申明相关的属性
-    def __init__(self, host, port, name, password, database, collection):
-        self.host = host
-        self.port = port
-        self.name = name
-        self.password = password
-        self.database = database
-        self.collection = collection
+def Page_Info(myPage):
+    '''Regex'''
+    mypage_Info = re.findall(r'<div class="titleBar" id=".*?"><h2>(.*?)</h2><div class="more"><a href="(.*?)">.*?</a></div></div>', myPage, re.S)
+    return mypage_Info
 
-    # 连接数据库，db和posts为数据库和集合的游标
-    def Connection(self):
-        # connection = pymongo.Connection() # 连接本地数据库
-        connection = pymongo.Connection(host=self.host, port=self.port)
-        # db = connection.datas
-        db = connection[self.database]
-        if self.name or self.password:
-            db.authenticate(name=self.name, password=self.password) # 验证用户名密码
-        # print "Database:", db.name
-        # posts = db.cn_live_news
-        posts = db[self.collection]
-        # print "Collection:", posts.name
-        return posts
+def New_Page_Info(new_page):
+    '''Regex(slowly) or Xpath(fast)'''
+    # new_page_Info = re.findall(r'<td class=".*?">.*?<a href="(.*?)\.html".*?>(.*?)</a></td>', new_page, re.S)
+    # # new_page_Info = re.findall(r'<td class=".*?">.*?<a href="(.*?)">(.*?)</a></td>', new_page, re.S) # bugs
+    # results = []
+    # for url, item in new_page_Info:
+    #     results.append((item, url+".html"))
+    # return results
+    dom = etree.HTML(new_page)
+    new_items = dom.xpath('//tr/td/a/text()')
+    new_urls = dom.xpath('//tr/td/a/@href')
+    assert(len(new_items) == len(new_urls))
+    return zip(new_items, new_urls)
 
-# 保存操作
-# def ResultSave(save_host, save_port, save_name, save_password, save_database, save_collection, save_contents):
-#     posts = MongoDBIO(save_host, save_port, save_name, save_password, save_database, save_collection).Connection()
-#     for save_content in save_contents:
-#         posts.save(save_content)
-def ResultSave(save_host, save_port, save_name, save_password, save_database, save_collection, save_content):
-    posts = MongoDBIO(save_host, save_port, save_name, save_password, save_database, save_collection).Connection()
-    posts.save(save_content)
-
-def Spider(url, data):
-    # # 方法1：requests get
-    content = requests.get(url=url, params=data).content # GET请求发送
-    # # 方法2：urllib2 get
-    # data = urllib.urlencode(data) # 编码工作，由dict转为string
-    # full_url = url+'?'+data
-    # print full_url
-    # content = urllib2.urlopen(full_url).read() # GET请求发送
-    # # content = requests.get(full_url).content # GET请求发送
-    # print type(content) # str
-    return content
-
-def ContentSave(item):
-    # 保存配置
-    save_host = "localhost"
-    save_port = 27017
-    save_name = ""
-    save_password = ""
-    save_database = "textclassify"
-    save_collection = "WallstreetcnSave"
-
-    source = "wallstreetcn"
-    createdtime = datetime.datetime.now()
-    type = item[0]
-    content = item[1].decode("unicode_escape") # json格式数据中，需从'\\uxxxx'形式的unicode_escape编码转换成u'\uxxxx'的unicode编码
-    content = content.encode("utf-8")
-    # print content
-    # district的筛选
-    categorySet = item[2]
-    category_num = categorySet.split(",")
-    category_name = map(num2name, category_num)
-    districtset = set(category_name)&{u"中国", u"美国", u"欧元区", u"日本", u"英国", u"澳洲", u"加拿大", u"瑞士", u"其他地区"}
-    district = ",".join(districtset)
-    propertyset = set(category_name)&{u"外汇", u"股市", u"商品", u"债市"}
-    property = ",".join(propertyset)
-    centralbankset = set(category_name)&{u"央行"}
-    centralbank = ",".join(centralbankset)
-    save_content = {
-        "source":source,
-        "createdtime":createdtime,
-        "content":content,
-        "type":type,
-        "district":district,
-        "property":property,
-        "centralbank":centralbank
-    }
-    ResultSave(save_host, save_port, save_name, save_password, save_database, save_collection, save_content)
-
-def func(page):
-    # url = "http://api.wallstreetcn.com/v2/livenews"
-    url = "https://baike.baidu.com/item/%E7%99%BE%E7%A7%91/291q2w"
-    # get参数
-    data = {
-        "page":page
-    }
-    content = Spider(url, data)
-    items = re.findall(r'"type":"(.*?)","codeType".*?"contentHtml":"(.*?)","data".*?"categorySet":"(.*?)","hasMore"', content) # 正则匹配
-    if len(items) == 0:
-        print "The End Page:", page
-        data = urllib3.urlencode(data) # 编码工作，由dict转为string
-        full_url = url+'?'+data
-        print full_url
-        sys.exit(0) # 无错误退出
-    else:
-        print "The Page:", page, "Downloading..."
-        for item in items:
-            ContentSave(item)
+def Spider(url):
+    i = 0
+    print "downloading ", url
+    myPage = requests.get(url).content.decode("gbk")
+    # myPage = urllib2.urlopen(url).read().decode("gbk")
+    myPageResults = Page_Info(myPage)
+    save_path = u"网易新闻抓取"
+    filename = str(i)+"_"+u"新闻排行榜"
+    StringListSave(save_path, filename, myPageResults)
+    i += 1
+    for item, url in myPageResults:
+        print "downloading ", url
+        new_page = requests.get(url).content.decode("gbk")
+        # new_page = urllib2.urlopen(url).read().decode("gbk")
+        newPageResults = New_Page_Info(new_page)
+        filename = str(i)+"_"+item
+        StringListSave(save_path, filename, newPageResults)
+        i += 1
 
 
 if __name__ == '__main__':
-
-    start = datetime.datetime.now()
-
-    start_page = 1
-    end_page = 10
-
-
-    # 多进程抓取
-    pages = [i for i in range(start_page, end_page)]
-    p = mp.Pool()
-    p.map_async(func, pages)
-    p.close()
-    p.join()
-
-
-    # 单进程抓取
-    page = end_page
-
-    while 1:
-        url = "https://baike.baidu.com/item/%E7%99%BE%E7%A7%91/29"
-        # get参数
-        data = {
-            "page":page
-        }
-        content = Spider(url, data)
-        items = re.findall(r'"type":"(.*?)","codeType".*?"contentHtml":"(.*?)","data".*?"categorySet":"(.*?)","hasMore"', content) # 正则匹配
-        if len(items) == 0:
-            print "The End Page:", page
-            data = urllib.urlencode(data) # 编码工作，由dict转为string
-            full_url = url+'?'+data
-            print full_url
-            break
-        else:
-            print "The Page:", page, "Downloading..."
-            for item in items:
-                ContentSave(item)
-            page += 1
-
-    end = datetime.datetime.now()
-    print "last time: ", end-start
+    print "start"
+    start_url = "http://news.163.com/rank/"
+    Spider(start_url)
+    print "end"
