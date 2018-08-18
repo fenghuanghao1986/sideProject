@@ -8,6 +8,7 @@ Created on Sat Aug 18 11:04:05 2018
 #_*_coding:utf-8_*_
 
 import sys
+# make sure change this as new module so it can run certain functions
 sys.path.append("C:\Users\fengh\pythonProject\sideProject\web_crawler\baike_spider2")
 print sys.path
 
