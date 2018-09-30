@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Sat Sep 29 11:06:19 2018
-
-@author: fengh
-"""
-
 import scrapy
 
 #must inherit from scrapy.Spider
@@ -29,5 +23,4 @@ class KittensSpider(scrapy.Spider):
             #All we'll do is save the whole response as a huge text file.
             f.write(response.body)
         self.log('Saved file %s' % filename)
-     
         
